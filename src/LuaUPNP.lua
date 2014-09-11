@@ -125,7 +125,7 @@ local hostMeta = {
 
 hostMeta.__index = hostMeta
 
-_VERSION = "1.2014.09.10"
+_VERSION = "1.2014.09.11"
 _UPNPVERSION = "1.0"
 
 -- Upnp Object constants
@@ -167,8 +167,7 @@ end
 
 -- host object functions
 
-local function sendSOAP(hostObj,serviceType,serviceURL,actionName,sendArgs)
-	
+local function sendSOAP(host,serviceType,serviceURL,actionName,sendArgs)
 	-- Create argStr containing all the arguments and values
 	local argStr = ""
 	for k,v in pairs(sendArgs) do
@@ -189,7 +188,7 @@ local function sendSOAP(hostObj,serviceType,serviceURL,actionName,sendArgs)
 
 	-- Attach the headers to send with the request
 	local hdrs = {
-						["Host"] = hostObj.host,
+						["Host"] = host,
 						["Content-Length"] = #soapBody,
 						["Content-Type"] = "text/xml",
 						["SOAPAction"] = [["]]..serviceType.."#"..actionName..[["]]
@@ -291,7 +290,7 @@ hostMeta.send = function(hostObj, devName, serviceName, actionName, sendArgs)
 	end		-- for argName, argVals in pairs(argS) do ends
 	
 	-- Send the SOAP request now
-	local err,msg =  sendSOAP(serviceType,serviceURL,actionName,sendArgs)
+	local err,msg =  sendSOAP(hostObj.host,serviceType,serviceURL,actionName,sendArgs)
 	if not err then
 		return nil, msg
 	else
