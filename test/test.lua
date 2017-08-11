@@ -1,5 +1,5 @@
 -- package.path = package.path..";./src/?.lua"	-- For Zerobrane
-package.path = package.path..";./../src/?.lua"
+--package.path = package.path..";./../src/?.lua"
 
 u = require("LuaUPNP")
 
@@ -20,8 +20,15 @@ for k,v in pairs(uo.hosts) do
 	for l,m in pairs(v) do
 		print("    ",l,m)
 	end
+	if v.xmlFile == [[http://192.168.0.191:49153/setup.xml]] then
+		i = k
+	end
 end
 
+-- Belkin Wemo device commands to turn ON/OFF
+-- If it does not work play with the client UDP socket setsockname IP address in the creation of the UPNP object
+
 --i = 2
---print(uo.hosts[i]:getInfo())
---print(uo.hosts[i]:send("controllee","basicevent","SetBinaryState",{BinaryState=0}))
+print(uo.hosts[i]:getInfo())
+print(uo.hosts[i]:send("controllee","basicevent","SetBinaryState",{BinaryState=1}))
+--print(uo.hosts[i]:send("controllee","basicevent","GetBinaryState",{BinaryState=0}))

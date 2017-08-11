@@ -3,6 +3,8 @@ local socket = require("socket")
 local mime = require("mime")
 local ltn12 = require("ltn12")
 local http = require("socket.http")
+--local curl = require("curl")
+
 local type = type
 local setmetatable = setmetatable
 local getmetatable = getmetatable
@@ -104,6 +106,7 @@ end
 
 local upnpMeta = {
 		ip = "239.255.255.250", 
+		--ip = "0.0.0.0",
 		port = 1900,
 		iface = "*",
 		close = function(o)
@@ -165,6 +168,35 @@ local function httpGetFile(path)
 	return table.concat(ft),resp[3]	-- Return the File and the headers	
 end
 
+--[[
+-- LuaCURL version
+local function httpGetFile(path)
+
+	local c = curl.easy_init()
+	--c:setopt_url("http://192.168.0.191:49153/setup.xml")
+	c:setopt_url(path)
+
+	local output = {}
+	local header = {}
+	local code = 0
+	c:perform{
+		writefunction = function(data)
+			table.insert(output, data)
+		end,
+		headerfunction = function(data)
+			local k,v = data:match("^%s*([^%:]+)%s*%:%s*(.-)%s*$")
+			--print("DATA:",data,k,v)
+			if k then
+				header[k:lower()] = v
+			end
+			-- skip empty lines and other header lines once code is set to a non-100-Continue value
+			if #data <= 2 or not (code == 0 or code == 100) then return end
+			code = tonumber(data:match('^[^ ]+ ([0-9]+) '))
+		end}
+	return table.concat(output), header
+
+end]]
+
 -- host object functions
 
 local function sendSOAP(host,serviceType,serviceURL,actionName,sendArgs)
@@ -172,7 +204,7 @@ local function sendSOAP(host,serviceType,serviceURL,actionName,sendArgs)
 	local argStr = ""
 	for k,v in pairs(sendArgs) do
 		--print(k,v)
-		argStr = "<"..k..">"..v[1]..[[</]]..k..[[>]]
+		argStr = argStr.."<"..k..">"..v[1]..[[</]]..k..[[>]]
 	end
 	-- Create the SOAP request
 	local soapBody = 	[[<?xml version="1.0"?>
@@ -272,7 +304,8 @@ hostMeta.send = function(hostObj, devName, serviceName, actionName, sendArgs)
 							end
 						end
 					elseif actionStateVar.defaultValue then
-						sendArgs[argName] = {actionStateVar.defaultValue}
+						--sendArgs[argName] = {actionStateVar.defaultValue}
+						sendArgs[argName] = actionStateVar.defaultValue
 					else
 						return nil, "Value for required argument "..argName.." not provided"
 					end
@@ -302,6 +335,7 @@ hostMeta.getInfo = function(hostObj)
 	if hostObj.enumerated then
 		return true
 	end
+	--print("Get XML file")
 	local xml,hdrs = httpGetFile(hostObj.xmlFile)
 	if not xml then
 		return xml,hdrs
@@ -310,6 +344,7 @@ hostMeta.getInfo = function(hostObj)
 	-- Now parse the XML using LXML module
 	
 	-- Use the domHandler
+	--print("Parse XML file")
 	local handler = lxml.handlers.domHandler()
 	local parser = lxml.Parser(handler)
 	parser:parse(xml)
@@ -589,6 +624,7 @@ hostMeta.getInfo = function(hostObj)
 	end		-- local function parseXMLDeviceInfo(xmlDom)
 	
 	hostObj.serverType = hdrs.server
+	--print("Parse XML Device Info")
 	local stat,err = parseXMLDeviceInfo(handler)
 	if not stat then
 		return nil, err
@@ -681,6 +717,7 @@ upnpMeta.msearch = function(o,timeout, searchType,searchName)
 	end
 	local ip, port = o.ip, o.port
 	local st = "upnp:rootdevice"
+	--local st = "ssdp:all"
 	
 	if searchType and searchName then
 		st = "urn:schemas-upnp-org:"..searchType..":"..searchName..":".._UPNPVERSION:match("(.-)%..+")
@@ -792,6 +829,7 @@ new = function(ip,port,iface)
 			hosts = {},	-- Store list of hosts found
 			-- These are object instance specific headers which can be manipulated to send with the msearch command
 			msearchHeaders = {
+				--MAN = '"ssdp:all"',
 				MAN = '"ssdp:discover"',
 				MX = "3"				
 			}
@@ -819,8 +857,9 @@ new = function(ip,port,iface)
 	end
 	-- For BSD systems
 	pcall(obj.clnt.setoption,obj.clnt,"reuseport",true)
-	done,msg = obj.clnt:setsockname("*",0)	-- Setting this to an unused port on windows otherwise it drops responses
-	--done,msg = obj.clnt:setsockname("*",60000)
+	--done,msg = obj.clnt:setsockname("*",0)	-- Setting this to an unused port on windows otherwise it drops responses
+	--done,msg = obj.clnt:setsockname("0.0.0.0",1901) -- This worked 8/9/2017 "*",0 did not work
+	done,msg = obj.clnt:setsockname("0.0.0.0",0)	-- This also worked 8/9/2017
 	if not done then
 		return nil, "Failed to initialize upnp sockets: "..msg
 	end
