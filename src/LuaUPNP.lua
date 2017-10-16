@@ -13,13 +13,14 @@ local pairs = pairs
 local tostring = tostring
 local tonumber = tonumber
 local lxml = require("LXML")
+local tu = require("tableUtils")
 local table = table
+local io = io
 
 local ostime = os.time
 
 -- For debugging
 --local print = print
---local io = io
 
 
 
@@ -58,6 +59,7 @@ end
 -- MEMBER FUNCTIONS
 -- getInfo(hostObj) --  get the full information for the host. This populates all the ''devices'' tables for the host containing all the services, state variables and actions for the device.
 -- send(hostObj, devName, serviceName, actionName, sendArgs) -- send a SOAP command
+-- httpGetFile - get the file from URL and return the content and the returned http headers
 -- MEMBER VARIABLES
 -- xmlFile - full url path of xmlFile describing the service
 -- host - url of host
@@ -99,7 +101,6 @@ end
 
 
 -- LOCAL MODULE FUNCTIONS
--- httpGetFile - get the file from URL and return the content and the returned http headers
 -- receive - receive a set size of data from the socket connection with a specified timeout
 -- parseSSDP - function to parse the ssdp response and generate a tentative host object. This function is used by msearch and pcap functions
 -- sendSOAP - function to send a SOAP request
@@ -149,7 +150,7 @@ local function receive(sckt,size,timeout)
 	end
 end
 
-local function httpGetFile(path)
+upnpMeta.httpGetFile = function(path)
 	-- Set the headers
 	local hdrs = {["USER-AGENT"] = "uPNP/".._UPNPVERSION}
 	local ft = {}
@@ -241,6 +242,21 @@ local function sendSOAP(host,serviceType,serviceURL,actionName,sendArgs)
 		return nil,resp[2]
 	end
 	return table.concat(ft)-- Return the body of the response
+end
+
+hostMeta.saveHost = function(hostObj,fileName)
+	local stat,msg, f
+	f,msg = io.open(fileName,"w+")
+	if not f then
+		return nil,"Cannot Open File to save Host: "..msg
+	end
+	stat,msg = f:write(tu.t2spp(hostObj))
+	if not stat then
+		f:close()
+		return nil,msg
+	end
+	f:close()
+	return true
 end
 
 -- sendArgs is a table with key as argument name and value as the argument value string (unencoded)
@@ -336,7 +352,7 @@ hostMeta.getInfo = function(hostObj)
 		return true
 	end
 	--print("Get XML file")
-	local xml,hdrs = httpGetFile(hostObj.xmlFile)
+	local xml,hdrs = upnpMeta.httpGetFile(hostObj.xmlFile)
 	if not xml then
 		return xml,hdrs
 	end
@@ -462,7 +478,7 @@ hostMeta.getInfo = function(hostObj)
 		
 		-- Now create the table for the service actions data structure
 		serviceEntry.actions = {}
-		local xml,hdrs = httpGetFile(xmlFile)	-- Get the service XML file
+		local xml,hdrs = upnpMeta.httpGetFile(xmlFile)	-- Get the service XML file
 		--print("XML file is: ", xml,hdrs)
 		if not xml then
 			return nil,"Could not retrieve the service info XML file: "..xmlFile
@@ -640,6 +656,7 @@ end
 local function parseSSDP(str)
 	-- Local functions for parsing
 	-- To extract information for a specified tag in the header
+	--print("parseSSDP: ",str)
 	local function parseHeader(header,tag)
 		local st,stp = header:upper():find("\n%s*"..tag:upper().."%s*:%s*")
 		local info
@@ -723,7 +740,7 @@ upnpMeta.msearch = function(o,timeout, searchType,searchName)
 		st = "urn:schemas-upnp-org:"..searchType..":"..searchName..":".._UPNPVERSION:match("(.-)%..+")
 	end
 	
-	request = [[M-SEARCH * HTTP/1.1]].."\r\nHOST:"..o.ip..":"..o.port.."\r\nST:"..st.."\r\n"
+	local request = [[M-SEARCH * HTTP/1.1]].."\r\nHOST:"..o.ip..":"..o.port.."\r\nST:"..st.."\r\n"
 	
 	local recTimeout = 3
 	for k,v in pairs(o.msearchHeaders) do
@@ -821,10 +838,29 @@ upnpMeta.pcap = function(o, timeout)
 	end		-- while ends here
 end
 
+-- fileName is the file created by hostMeta.saveHost function
+upnpMeta.loadHost = function(o,fileName)
+	local f,msg,fdata,h
+	f,msg = io.open(fileName,"r")
+	if not f then
+		return nil,"Cannot Open File: "..msg
+	end
+	fdata = f:read("*a")
+	f:close()
+	h,msg = tu.s2t(fdata)
+	if not h then
+		return nil,msg
+	end
+	if not h.protocol or not h.upnpType or not h.xmlFile then
+		return nil,"Invalid data in file."
+	end
+	o.hosts[#o.hosts + 1] = setmetatable(h,hostMeta)
+	return o.hosts[#o.hosts]
+end
 
 -- To create and return a new uPnP object
 new = function(ip,port,iface)
-	local err,msg
+	local err,msg,done
 	local obj = {
 			hosts = {},	-- Store list of hosts found
 			-- These are object instance specific headers which can be manipulated to send with the msearch command
@@ -851,7 +887,7 @@ new = function(ip,port,iface)
 	if not obj.clnt then
 		return nil, "Failed to initialize upnp sockets"
 	end
-	local done,msg = pcall(obj.clnt.setoption,obj.clnt,"reuseaddr",true)
+	done,msg = pcall(obj.clnt.setoption,obj.clnt,"reuseaddr",true)
 	if not done then
 		return nil, "Failed to initialize upnp sockets: "..msg
 	end
